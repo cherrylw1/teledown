@@ -52,9 +52,9 @@ class ParallelTransferrer:
             self.senders = None
 
     @staticmethod
-    def _get_connection_count(file_size: int, max_count: int = 20,
+    def _get_connection_count(file_size: int, max_count: int = 24,
                                full_size: int = 100 * 1024 * 1024) -> int:
-        # Scale connections up to 20 for files > 100MB
+        # Scale up to 24 parallel connections for large files
         if file_size > full_size:
             return max_count
         return max(4, math.ceil((file_size / full_size) * max_count))
@@ -102,17 +102,24 @@ class ParallelTransferrer:
         log.debug(f"Starting parallel download: {connection_count} connections, part size {part_size} bytes, total parts {part_count}")
         await self._init_download(connection_count, file, part_size)
 
-        # Dictionary to buffer downloaded chunks in memory
-        downloaded_parts = {}
-        part_downloaded_event = asyncio.Event()
+        # Create a Future for each chunk to handle in-order yielding without polling delays
+        futures = [self.loop.create_future() for _ in range(part_count)]
 
-        # Shared counter to distribute tasks to workers
+        # Shared state for workers
         next_part_to_download = 0
+        current_part_to_yield = 0
         counter_lock = asyncio.Lock()
+        
+        # Allow pre-fetching up to 32 parts ahead to control RAM usage while maintaining pipeline saturation
+        max_prefetch = 32
 
         async def worker(sender: DownloadSender):
             nonlocal next_part_to_download
             while True:
+                # Apply Backpressure: prevent workers from fetching too far ahead of the consumer
+                while next_part_to_download > current_part_to_yield + max_prefetch:
+                    await asyncio.sleep(0.01)
+
                 async with counter_lock:
                     part_idx = next_part_to_download
                     next_part_to_download += 1
@@ -125,10 +132,12 @@ class ParallelTransferrer:
                 
                 try:
                     result = await self.client._call(sender.sender, sender.request)
-                    downloaded_parts[part_idx] = result.bytes
-                    part_downloaded_event.set()
+                    if not futures[part_idx].done():
+                        futures[part_idx].set_result(result.bytes)
                 except Exception as e:
                     log.error(f"Worker failed downloading chunk {part_idx}: {e}")
+                    if not futures[part_idx].done():
+                        futures[part_idx].set_exception(e)
                     raise e
 
         # Spawn all worker connections in parallel tasks
@@ -137,26 +146,19 @@ class ParallelTransferrer:
             for sender in self.senders
         ]
 
-        # Consuming and yielding in-order chunks
-        current_part_to_yield = 0
-        while current_part_to_yield < part_count:
-            while current_part_to_yield not in downloaded_parts:
-                part_downloaded_event.clear()
+        # Consuming and yielding in-order chunks using Futures
+        try:
+            while current_part_to_yield < part_count:
+                # Direct await of the future blocks cleanly without cpu-bound polling loops
+                chunk_bytes = await futures[current_part_to_yield]
+                yield chunk_bytes
                 
-                # Check for worker failures to fail fast
-                for task in worker_tasks:
-                    if task.done() and task.exception() is not None:
-                        await self._cleanup()
-                        raise task.exception()
-                
-                try:
-                    await asyncio.wait_for(part_downloaded_event.wait(), timeout=1.0)
-                except asyncio.TimeoutError:
-                    continue
-
-            yield downloaded_parts.pop(current_part_to_yield)
-            current_part_to_yield += 1
-
-        # Gather remaining worker tasks to ensure clean completion
-        await asyncio.gather(*worker_tasks)
-        await self._cleanup()
+                # Clear references to free memory immediately
+                futures[current_part_to_yield] = None
+                current_part_to_yield += 1
+        finally:
+            # Cancel workers and clean up connections
+            for task in worker_tasks:
+                if not task.done():
+                    task.cancel()
+            await self._cleanup()
