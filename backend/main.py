@@ -180,7 +180,7 @@ async def stream_file(link: str):
         try:
             async for chunk in client.iter_download(
                 message.media,
-                chunk_size=1024 * 256  # 256 KB chunk size for efficient streaming
+                chunk_size=1024 * 512  # 512 KB chunk size for maximum streaming throughput
             ):
                 yield chunk
         except Exception as e:
