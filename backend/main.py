@@ -7,8 +7,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from telethon import TelegramClient
+from telethon import TelegramClient, utils
 from telethon.errors import SessionPasswordNeededError
+from parallel_transfer import ParallelTransferrer
 
 # Resolve paths
 BACKEND_DIR = Path(__file__).resolve().parent
@@ -175,16 +176,22 @@ async def stream_file(link: str):
         ext = message.file.ext or "bin"
         file_name = f"telegram_file_{message_id}.{ext}"
 
-    # Asynchronous generator to stream file chunks from Telegram
+    # Get the input location of the file and DC ID
+    dc_id, input_location = utils.get_input_location(message.media)
+
+    # Initialize parallel downloader connection pool
+    downloader = ParallelTransferrer(client, dc_id)
+
+    # Asynchronous generator to stream file chunks from Telegram in parallel
     async def file_sender():
         try:
-            async for chunk in client.iter_download(
-                message.media,
-                chunk_size=1024 * 512  # 512 KB chunk size for maximum streaming throughput
+            async for chunk in downloader.download(
+                input_location,
+                file_size
             ):
                 yield chunk
         except Exception as e:
-            print(f"Error while streaming media: {e}")
+            print(f"Error while streaming media in parallel: {e}")
             raise e
 
     # Expose custom headers for browser downloads
