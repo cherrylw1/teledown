@@ -17,11 +17,41 @@ document.addEventListener('DOMContentLoaded', () => {
   const engineStatus = document.getElementById('engine-status');
   const engineStatusText = document.getElementById('engine-status-text');
 
-  // Dynamically resolve backend Base URL
-  // If the page is opened on local network (e.g. 192.168.x.x), connect to the corresponding IP backend.
-  const currentHostname = window.location.hostname;
-  const isLocalIp = /^(127\.0\.0\.1|localhost|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)$/.test(currentHostname);
-  const backendBaseUrl = isLocalIp ? `http://${currentHostname}:8000` : 'http://localhost:8000';
+  // Connection Settings Elements
+  const toggleSettingsBtn = document.getElementById('toggle-settings-btn');
+  const settingsPanel = document.getElementById('settings-panel');
+  const backendUrlInput = document.getElementById('backend-url');
+  const saveSettingsBtn = document.getElementById('save-settings-btn');
+
+  // Resolve or load backend Base URL
+  let backendBaseUrl = localStorage.getItem('teledown_backend_url');
+  if (!backendBaseUrl) {
+    const currentHostname = window.location.hostname;
+    const isLocalIp = /^(127\.0\.0\.1|localhost|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)$/.test(currentHostname);
+    backendBaseUrl = isLocalIp ? `http://${currentHostname}:8000` : 'http://localhost:8000';
+  }
+  backendUrlInput.value = backendBaseUrl;
+
+  // Settings Panel Toggle
+  toggleSettingsBtn.addEventListener('click', () => {
+    settingsPanel.classList.toggle('hidden');
+  });
+
+  // Settings Save
+  saveSettingsBtn.addEventListener('click', () => {
+    let url = backendUrlInput.value.trim();
+    if (!url) {
+      alert('Please enter a valid backend URL.');
+      return;
+    }
+    if (url.endsWith('/')) {
+      url = url.slice(0, -1);
+    }
+    backendBaseUrl = url;
+    localStorage.setItem('teledown_backend_url', url);
+    settingsPanel.classList.add('hidden');
+    checkEngineHealth(); // Trigger immediate check
+  });
 
   // Helper: Display error message
   function showError(msg) {
