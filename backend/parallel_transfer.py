@@ -22,24 +22,11 @@ class DownloadSender:
     client: TelegramClient
     sender: MTProtoSender
     request: GetFileRequest
-    remaining: int
-    stride: int
 
-    def __init__(self, client: TelegramClient, sender: MTProtoSender, file: TypeLocation, offset: int, limit: int,
-                 stride: int, count: int) -> None:
+    def __init__(self, client: TelegramClient, sender: MTProtoSender, file: TypeLocation, limit: int) -> None:
         self.sender = sender
         self.client = client
-        self.request = GetFileRequest(file, offset=offset, limit=limit)
-        self.stride = stride
-        self.remaining = count
-
-    async def next(self) -> Optional[bytes]:
-        if not self.remaining:
-            return None
-        result = await self.client._call(self.sender, self.request)
-        self.remaining -= 1
-        self.request.offset += self.stride
-        return result.bytes
+        self.request = GetFileRequest(file, offset=0, limit=limit)
 
     def disconnect(self) -> Awaitable[None]:
         return self.sender.disconnect()
@@ -65,39 +52,27 @@ class ParallelTransferrer:
             self.senders = None
 
     @staticmethod
-    def _get_connection_count(file_size: int, max_count: int = 12,
+    def _get_connection_count(file_size: int, max_count: int = 20,
                                full_size: int = 100 * 1024 * 1024) -> int:
-        # Default to 4 connections for small files, up to 12 for files > 100MB
+        # Scale connections up to 20 for files > 100MB
         if file_size > full_size:
             return max_count
         return max(4, math.ceil((file_size / full_size) * max_count))
 
-    async def _init_download(self, connections: int, file: TypeLocation, part_count: int,
-                             part_size: int) -> None:
-        minimum, remainder = divmod(part_count, connections)
-
-        def get_part_count() -> int:
-            nonlocal remainder
-            if remainder > 0:
-                remainder -= 1
-                return minimum + 1
-            return minimum
-
-        # The first sender will export/import authorization, so establish it first
-        first_sender = await self._create_download_sender(file, 0, part_size, connections * part_size, get_part_count())
+    async def _init_download(self, connections: int, file: TypeLocation, part_size: int) -> None:
+        # Establish the first sender first (to export/import authorization)
+        first_sender = await self._create_download_sender(file, part_size)
         
-        # Then create other senders in parallel
+        # Then establish other senders in parallel
         other_senders = await asyncio.gather(*[
-            self._create_download_sender(file, i, part_size, connections * part_size, get_part_count())
-            for i in range(1, connections)
+            self._create_download_sender(file, part_size)
+            for _ in range(1, connections)
         ])
         
         self.senders = [first_sender] + list(other_senders)
 
-    async def _create_download_sender(self, file: TypeLocation, index: int, part_size: int,
-                                      stride: int, part_count: int) -> DownloadSender:
-        return DownloadSender(self.client, await self._create_sender(), file, index * part_size, part_size,
-                              stride, part_count)
+    async def _create_download_sender(self, file: TypeLocation, part_size: int) -> DownloadSender:
+        return DownloadSender(self.client, await self._create_sender(), file, part_size)
 
     async def _create_sender(self) -> MTProtoSender:
         dc = await self.client._get_dc(self.dc_id)
@@ -125,18 +100,63 @@ class ParallelTransferrer:
         part_count = math.ceil(file_size / part_size)
         
         log.debug(f"Starting parallel download: {connection_count} connections, part size {part_size} bytes, total parts {part_count}")
-        await self._init_download(connection_count, file, part_count, part_size)
+        await self._init_download(connection_count, file, part_size)
 
-        part = 0
-        while part < part_count:
-            tasks = []
-            for sender in self.senders:
-                tasks.append(self.loop.create_task(sender.next()))
-            for task in tasks:
-                data = await task
-                if data is None:
+        # Dictionary to buffer downloaded chunks in memory
+        downloaded_parts = {}
+        part_downloaded_event = asyncio.Event()
+
+        # Shared counter to distribute tasks to workers
+        next_part_to_download = 0
+        counter_lock = asyncio.Lock()
+
+        async def worker(sender: DownloadSender):
+            nonlocal next_part_to_download
+            while True:
+                async with counter_lock:
+                    part_idx = next_part_to_download
+                    next_part_to_download += 1
+
+                if part_idx >= part_count:
                     break
-                yield data
-                part += 1
+
+                # Point request to the target chunk offset
+                sender.request.offset = part_idx * part_size
                 
+                try:
+                    result = await self.client._call(sender.sender, sender.request)
+                    downloaded_parts[part_idx] = result.bytes
+                    part_downloaded_event.set()
+                except Exception as e:
+                    log.error(f"Worker failed downloading chunk {part_idx}: {e}")
+                    raise e
+
+        # Spawn all worker connections in parallel tasks
+        worker_tasks = [
+            self.loop.create_task(worker(sender))
+            for sender in self.senders
+        ]
+
+        # Consuming and yielding in-order chunks
+        current_part_to_yield = 0
+        while current_part_to_yield < part_count:
+            while current_part_to_yield not in downloaded_parts:
+                part_downloaded_event.clear()
+                
+                # Check for worker failures to fail fast
+                for task in worker_tasks:
+                    if task.done() and task.exception() is not None:
+                        await self._cleanup()
+                        raise task.exception()
+                
+                try:
+                    await asyncio.wait_for(part_downloaded_event.wait(), timeout=1.0)
+                except asyncio.TimeoutError:
+                    continue
+
+            yield downloaded_parts.pop(current_part_to_yield)
+            current_part_to_yield += 1
+
+        # Gather remaining worker tasks to ensure clean completion
+        await asyncio.gather(*worker_tasks)
         await self._cleanup()
