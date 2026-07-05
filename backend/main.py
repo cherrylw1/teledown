@@ -4,7 +4,7 @@ import asyncio
 from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from telethon import TelegramClient, utils
@@ -209,4 +209,11 @@ async def stream_file(link: str):
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "authorized": await client.is_user_authorized()}
+    return FileResponse(BACKEND_DIR.parent / "frontend" / "index.html")
+
+@app.get("/app.js")
+async def serve_app_js():
+    return FileResponse(
+        BACKEND_DIR.parent / "frontend" / "app.js",
+        media_type="application/javascript"
+    )

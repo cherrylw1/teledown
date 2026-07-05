@@ -27,8 +27,15 @@ document.addEventListener('DOMContentLoaded', () => {
   let backendBaseUrl = localStorage.getItem('teledown_backend_url');
   if (!backendBaseUrl) {
     const currentHostname = window.location.hostname;
-    const isLocalIp = /^(127\.0\.0\.1|localhost|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)$/.test(currentHostname);
-    backendBaseUrl = isLocalIp ? `http://${currentHostname}:8000` : 'http://localhost:8000';
+    const currentProtocol = window.location.protocol;
+    
+    if (window.location.port) {
+      backendBaseUrl = `${currentProtocol}//${currentHostname}:${window.location.port}`;
+    } else if (currentHostname.includes('pinggy') || currentHostname.includes('ngrok')) {
+      backendBaseUrl = `${currentProtocol}//${currentHostname}`;
+    } else {
+      backendBaseUrl = 'http://localhost:8000';
+    }
   }
   backendUrlInput.value = backendBaseUrl;
 
