@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const toggleSettingsBtn = document.getElementById('toggle-settings-btn');
   const settingsPanel = document.getElementById('settings-panel');
   const backendUrlInput = document.getElementById('backend-url');
+  const securityTokenInput = document.getElementById('security-token');
   const saveSettingsBtn = document.getElementById('save-settings-btn');
 
   // Resolve or load backend Base URL
@@ -39,6 +40,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   backendUrlInput.value = backendBaseUrl;
 
+  // Load security token
+  let securityToken = localStorage.getItem('teledown_security_token') || '';
+  securityTokenInput.value = securityToken;
+
   // Settings Panel Toggle
   toggleSettingsBtn.addEventListener('click', () => {
     settingsPanel.classList.toggle('hidden');
@@ -56,6 +61,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     backendBaseUrl = url;
     localStorage.setItem('teledown_backend_url', url);
+
+    securityToken = securityTokenInput.value.trim();
+    localStorage.setItem('teledown_security_token', securityToken);
+
     settingsPanel.classList.add('hidden');
     checkEngineHealth(); // Trigger immediate check
   });
@@ -93,9 +102,15 @@ document.addEventListener('DOMContentLoaded', () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
 
+      const headers = {};
+      if (securityToken) {
+        headers['Authorization'] = `Bearer ${securityToken}`;
+      }
+
       const response = await fetch(`${backendBaseUrl}/health`, {
         signal: controller.signal,
-        mode: 'cors'
+        mode: 'cors',
+        headers: headers
       });
 
       clearTimeout(timeoutId);
@@ -134,7 +149,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
       // Build the backend stream endpoint URL
-      const streamUrl = `${backendBaseUrl}/stream?link=${encodeURIComponent(link)}`;
+      let streamUrl = `${backendBaseUrl}/stream?link=${encodeURIComponent(link)}`;
+      if (securityToken) {
+        streamUrl += `&token=${encodeURIComponent(securityToken)}`;
+      }
 
       // Update button state to success
       btnIcon.className = 'fa-solid fa-circle-check';

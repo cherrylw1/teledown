@@ -3,7 +3,7 @@ import re
 import asyncio
 from pathlib import Path
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Query
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -14,13 +14,31 @@ from parallel_transfer import ParallelTransferrer
 # Resolve paths
 BACKEND_DIR = Path(__file__).resolve().parent
 ENV_PATH = BACKEND_DIR / ".env"
-SESSION_PATH = BACKEND_DIR / "fast_streamer_session"
+SESSION_DIR = BACKEND_DIR / "session_data"
+SESSION_DIR.mkdir(exist_ok=True)
+SESSION_PATH = SESSION_DIR / "fast_streamer_session"
 
 # Load env variables
 load_dotenv(dotenv_path=ENV_PATH)
 
 API_ID_STR = os.getenv("TELEGRAM_API_ID")
 API_HASH = os.getenv("TELEGRAM_API_HASH")
+ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
+
+def verify_token(token: str = None, authorization: str = None):
+    if not ACCESS_TOKEN:
+        return
+    actual_token = None
+    if authorization and authorization.startswith("Bearer "):
+        actual_token = authorization.split(" ")[1]
+    elif token:
+        actual_token = token
+        
+    if actual_token != ACCESS_TOKEN:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized: Invalid access token."
+        )
 
 if not API_ID_STR or not API_HASH:
     raise RuntimeError(
@@ -128,13 +146,22 @@ app.add_middleware(
 )
 
 @app.get("/health")
-async def health():
+async def health(
+    authorization: str = Header(None),
+    token: str = Query(None)
+):
     """Health check endpoint to indicate local engine is running."""
+    verify_token(token=token, authorization=authorization)
     return {"status": "online"}
 
 @app.get("/stream")
-async def stream_file(link: str):
+async def stream_file(
+    link: str,
+    authorization: str = Header(None),
+    token: str = Query(None)
+):
     """Streams a file from Telegram directly to the client without disk writing."""
+    verify_token(token=token, authorization=authorization)
     if not await client.is_user_authorized():
         raise HTTPException(
             status_code=401,

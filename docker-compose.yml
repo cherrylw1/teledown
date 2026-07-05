@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  teledown:
+    build: .
+    container_name: teledown_app
+    ports:
+      - "8000:8000"
+    volumes:
+      - teledown_session:/app/backend/session_data
+    env_file:
+      - ./backend/.env
+    restart: unless-stopped
+    stdin_open: true # Support interactive terminal for OTP login
+    tty: true        # Support interactive terminal for OTP login
+
+volumes:
+  teledown_session:
