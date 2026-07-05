@@ -58,9 +58,17 @@
       <div class="absolute -bottom-24 -right-24 w-48 h-48 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
       <div class="relative">
-        <div class="mb-6">
-          <h2 class="text-2xl font-semibold text-white tracking-tight">Stream Download File</h2>
-          <p class="text-zinc-400 text-sm mt-1">Paste a Telegram message or post link to stream and download the attached file directly.</p>
+        <div class="mb-6 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+          <div class="space-y-1">
+            <h2 class="text-2xl font-semibold text-white tracking-tight">Stream Download File</h2>
+            <p class="text-zinc-400 text-sm">Paste a Telegram message or post link to stream and download the attached file directly.</p>
+          </div>
+          <div class="flex-shrink-0 self-start sm:self-start mt-1">
+            <div id="engine-status" class="text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 bg-zinc-950 border border-zinc-800 text-zinc-400 select-none transition-all duration-300">
+              <span class="h-2 w-2 rounded-full bg-zinc-650 animate-pulse"></span>
+              <span id="engine-status-text">Checking Engine...</span>
+            </div>
+          </div>
         </div>
 
         <!-- Input Field Container -->

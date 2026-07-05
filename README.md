@@ -4,54 +4,33 @@ A lightweight, multi-threaded Telegram file streaming application. It lets you s
 
 ## Prerequisites
 
-- **Python 3.8+** (Tested with Python 3.13)
+- **Python 3.8+**
 - **Modern Web Browser** (Chrome, Firefox, Safari, Edge) supporting Web Streams API
 
 ---
 
-## Backend Startup Sequence
+## One-Click Startup Automation
 
-1. Navigate to the `/backend` directory:
-   ```bash
-   cd backend
-   ```
+We provide cross-platform scripts in the root directory to automate virtual environment setup, package installations, and booting the server on port 8000:
 
-2. Create a virtual environment and activate it:
-   - **Windows (CMD/PowerShell)**:
-     ```powershell
-     python -m venv venv
-     .\venv\Scripts\activate
-     ```
-   - **macOS/Linux**:
-     ```bash
-     python3 -m venv venv
-     source venv/bin/activate
-     ```
+- **Windows**:
+  Simply double-click the **`start.bat`** file in the project root, or execute:
+  ```cmd
+  start.bat
+  ```
 
-3. Install the dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+- **macOS / Linux**:
+  Make the shell script executable first, then run it:
+  ```bash
+  chmod +x start.sh
+  ./start.sh
+  ```
 
-4. Create a `.env` file in the `/backend` folder with your Telegram credentials:
-   ```env
-   TELEGRAM_API_ID=your_api_id
-   TELEGRAM_API_HASH=your_api_hash
-   ```
-   *(Note: You can get your API ID and HASH from [my.telegram.org](https://my.telegram.org/))*
-
-5. Launch the FastAPI server:
-   ```bash
-   uvicorn main:app --reload --port 8000
-   ```
-
-### Initial Terminal Verification Flow
-Upon the very first server launch (when there is no authorized session):
-- The FastAPI lifespan startup handler connects to Telegram and detects an unauthorized state.
-- In your terminal, you will be prompted to enter your phone number (e.g. `+1234567890`).
-- Telegram will send you a login OTP code. Enter the code in the terminal when prompted.
-- If two-step verification (2FA) is enabled, you will also be prompted for your password.
-- Once completed, a persistent `fast_streamer_session.session` file is saved inside `/backend` and subsequent launches will bypass authentication.
+### Startup Handshake & Verification Flow
+On the first server launch:
+- The script automatically checks for and creates a Python virtual environment (`venv/`), installs dependencies, and boots the FastAPI server on port 8000.
+- If a session does not exist, the startup lifespan handler will ask you for your **phone number** (including country code) and the **Telegram login OTP** directly in the terminal to authorize the Telethon connection.
+- After login, a persistent `.session` file is saved inside `/backend` and subsequent launches will bypass authentication.
 
 ---
 
@@ -66,13 +45,16 @@ Upon the very first server launch (when there is no authorized session):
      ```
      Then navigate to `http://localhost:8080`.
 
-2. Paste a valid Telegram channel or message link (e.g., `https://t.me/channel/101`) into the input field and click **Stream Download**.
-3. The frontend makes loopback requests to the backend server running at `http://localhost:8000`.
+2. The top-right corner of the UI card will display a status badge:
+   - **`● Local Engine Connected` (Green)**: The local FastAPI server is online and responding.
+   - **`● Local Engine Offline` (Red)**: The local FastAPI server is offline. Run the `start` script to launch it.
+
+3. Paste a valid Telegram channel or message link (e.g., `https://t.me/channel/101`) into the input field and click **Stream Download**. The browser will request the file from the backend and initiate a direct browser stream download.
 
 ---
 
-## Stream Path Architecture & Verification
+## Stream Path Architecture
 
 During execution, the stream flows entirely in-memory:
 - **No Backend Disk Writing**: The backend processes chunks of the file as an asynchronous iterator generator and pipes it directly into the HTTP response stream. No temporary files are written to the backend disk.
-- **Frontend Array Buffers**: The frontend receives incoming chunks via `response.body.getReader()`, collects them sequentially into a JavaScript array buffer in memory, compiles them into a native `Blob`, and simulates a click to download the complete file to the user's default downloads directory.
+- **Frontend Stream Redirection**: The frontend updates the button to a success state and redirects the browser window location to the `/stream` endpoint. The browser's native download manager intercepts the stream chunk-by-chunk and saves it to disk with zero JS RAM overhead, avoiding tab crashes on large (>2GB) downloads.

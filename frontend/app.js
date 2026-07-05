@@ -13,6 +13,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const downloadedLabel = document.getElementById('downloaded-label');
   const totalLabel = document.getElementById('total-label');
 
+  // Connection Badge Elements
+  const engineStatus = document.getElementById('engine-status');
+  const engineStatusText = document.getElementById('engine-status-text');
+
   // Helper: Display error message
   function showError(msg) {
     errorMessage.textContent = msg;
@@ -25,6 +29,50 @@ document.addEventListener('DOMContentLoaded', () => {
     errorBanner.classList.add('hidden');
     errorMessage.textContent = '';
   }
+
+  // Helper: Update engine connection badge
+  function updateEngineStatus(online) {
+    const dot = engineStatus.querySelector('span');
+    if (online) {
+      engineStatus.className = 'text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 bg-emerald-950/30 border border-emerald-800/30 text-emerald-400 select-none transition-all duration-300';
+      dot.className = 'h-2 w-2 rounded-full bg-emerald-500';
+      engineStatusText.textContent = 'Local Engine Connected';
+    } else {
+      engineStatus.className = 'text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1.5 bg-red-950/30 border border-red-800/30 text-red-400 select-none transition-all duration-300';
+      dot.className = 'h-2 w-2 rounded-full bg-red-500';
+      engineStatusText.textContent = 'Local Engine Offline - Run start script';
+    }
+  }
+
+  // Check backend server health endpoint
+  async function checkEngineHealth() {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
+
+      const response = await fetch('http://localhost:8000/health', {
+        signal: controller.signal,
+        mode: 'cors'
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.status === 'online') {
+          updateEngineStatus(true);
+          return;
+        }
+      }
+      updateEngineStatus(false);
+    } catch (_) {
+      updateEngineStatus(false);
+    }
+  }
+
+  // Initial and periodic checks
+  checkEngineHealth();
+  setInterval(checkEngineHealth, 10000);
 
   // Main download trigger
   downloadBtn.addEventListener('click', () => {
