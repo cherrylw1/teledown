@@ -48,5 +48,5 @@ if not exist .env (
 
 :: Launch uvicorn server
 echo [INFO] Starting FastAPI application on port 8000...
-venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000
+venv\Scripts\python.exe -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 pause

@@ -17,6 +17,12 @@ document.addEventListener('DOMContentLoaded', () => {
   const engineStatus = document.getElementById('engine-status');
   const engineStatusText = document.getElementById('engine-status-text');
 
+  // Dynamically resolve backend Base URL
+  // If the page is opened on local network (e.g. 192.168.x.x), connect to the corresponding IP backend.
+  const currentHostname = window.location.hostname;
+  const isLocalIp = /^(127\.0\.0\.1|localhost|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)$/.test(currentHostname);
+  const backendBaseUrl = isLocalIp ? `http://${currentHostname}:8000` : 'http://localhost:8000';
+
   // Helper: Display error message
   function showError(msg) {
     errorMessage.textContent = msg;
@@ -50,7 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
 
-      const response = await fetch('http://localhost:8000/health', {
+      const response = await fetch(`${backendBaseUrl}/health`, {
         signal: controller.signal,
         mode: 'cors'
       });
@@ -91,7 +97,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
       // Build the backend stream endpoint URL
-      const streamUrl = `http://localhost:8000/stream?link=${encodeURIComponent(link)}`;
+      const streamUrl = `${backendBaseUrl}/stream?link=${encodeURIComponent(link)}`;
 
       // Update button state to success
       btnIcon.className = 'fa-solid fa-circle-check';
